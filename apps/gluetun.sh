@@ -136,20 +136,43 @@ configure_gluetun_openvpn() {
 }
 
 verify_gluetun_connection() {
-  local public_ip default_dev
-  for _ in {1..30}; do
-    if systemctl is-active --quiet gluetun \
-      && curl -fsS --max-time 2 http://127.0.0.1:9999/ >/dev/null 2>&1 \
-      && [[ -s "$GETSUITE_GLUETUN_IP_FILE" ]]; then
+  local public_ip default_dev service_state health_state ip_state
+  local status_target=/dev/stderr attempt
+  [[ ! -w /dev/tty ]] || status_target=/dev/tty
+
+  printf 'Waiting for Gluetun to establish a verified VPN connection...\n' >"$status_target"
+  for attempt in {1..30}; do
+    service_state="$(systemctl is-active gluetun 2>/dev/null || true)"
+    [[ -n "$service_state" ]] || service_state=unknown
+
+    health_state=waiting
+    if curl -fsS --max-time 2 http://127.0.0.1:9999/ >/dev/null 2>&1; then
+      health_state=healthy
+    fi
+
+    public_ip=""
+    ip_state=waiting
+    if [[ -s "$GETSUITE_GLUETUN_IP_FILE" ]]; then
       public_ip="$(tr -d '[:space:]' <"$GETSUITE_GLUETUN_IP_FILE")"
-      default_dev="$(ip -4 route get 1.1.1.1 2>/dev/null | awk 'NR == 1 { for (i=1;i<=NF;i++) if ($i=="dev") print $(i+1) }')"
-      if [[ "$public_ip" =~ ^[0-9a-fA-F:.]+$ ]] && [[ "$default_dev" =~ ^(tun|wg) ]]; then
-        msg_ok "Gluetun connected (public IP: ${public_ip})"
-        return 0
-      fi
+      [[ -z "$public_ip" ]] || ip_state=available
+    fi
+
+    default_dev="$(ip -4 route get 1.1.1.1 2>/dev/null \
+      | awk 'NR == 1 { for (i=1;i<=NF;i++) if ($i=="dev") print $(i+1) }')"
+    [[ -n "$default_dev" ]] || default_dev=waiting
+
+    printf '\r\033[K  Attempt %02d/30 | service: %-10s | health: %-7s | route: %-8s | public IP: %s' \
+      "$attempt" "$service_state" "$health_state" "$default_dev" "$ip_state" >"$status_target"
+
+    if [[ "$service_state" == active && "$health_state" == healthy \
+      && "$public_ip" =~ ^[0-9a-fA-F:.]+$ && "$default_dev" =~ ^(tun|wg) ]]; then
+      printf '\n' >"$status_target"
+      msg_ok "Gluetun connected (public IP: ${public_ip})"
+      return 0
     fi
     sleep 2
   done
+  printf '\n' >"$status_target"
   msg_error "Gluetun did not establish a healthy VPN route"
   write_gluetun_diagnostics
   journalctl -u gluetun -n 40 --no-pager >&2 || true
