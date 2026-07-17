@@ -168,7 +168,6 @@ readonly DEFAULT_UPDATE_BASE_URL="https://github.com/donselkirk/getsuite/release
 readonly MANAGER_PATH="${GETSUITE_MANAGER_PATH:-/usr/local/bin/getsuite}"
 readonly MOTD_PATH="${GETSUITE_MOTD_PATH:-/etc/profile.d/00_lxc-details.sh}"
 readonly REPAIR_PATH="${GETSUITE_REPAIR_PATH:-/usr/local/sbin/getsuite-fix-console-autologin}"
-readonly APP_DATA_ROOT="${GETSUITE_APP_DATA_ROOT:-/var/lib}"
 readonly APP_INSTALL_ROOT="${GETSUITE_APP_INSTALL_ROOT:-/opt}"
 readonly SYSTEMD_UNIT_DIR="${GETSUITE_SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 readonly RELEASE_MARKER_ROOT="${GETSUITE_RELEASE_MARKER_ROOT:-$HOME}"
@@ -324,6 +323,8 @@ staged_prebuilt_update() {
 }
 
 # Generated from apps/gluetun.sh. Do not edit this block directly.
+#!/usr/bin/env bash
+
 readonly GETSUITE_GLUETUN_DATA_DIR="/opt/gluetun-data"
 readonly GETSUITE_GLUETUN_ENV="${GETSUITE_GLUETUN_DATA_DIR}/.env"
 readonly GETSUITE_GLUETUN_IP_FILE="${GETSUITE_GLUETUN_DATA_DIR}/ip"
@@ -455,8 +456,8 @@ configure_gluetun_openvpn() {
 }
 
 verify_gluetun_connection() {
-  local attempt public_ip default_dev
-  for attempt in {1..30}; do
+  local public_ip default_dev
+  for _ in {1..30}; do
     if systemctl is-active --quiet gluetun \
       && curl -fsS --max-time 2 http://127.0.0.1:9999/ >/dev/null 2>&1 \
       && [[ -s "$GETSUITE_GLUETUN_IP_FILE" ]]; then
@@ -554,6 +555,8 @@ update_gluetun() {
 }
 
 # Generated from apps/qbittorrent.sh. Do not edit this block directly.
+#!/usr/bin/env bash
+
 write_qbittorrent_service() {
   cat > /etc/systemd/system/qbittorrent-nox.service <<'EOF_SERVICE'
 [Unit]

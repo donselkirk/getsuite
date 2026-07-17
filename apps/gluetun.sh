@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 readonly GETSUITE_GLUETUN_DATA_DIR="/opt/gluetun-data"
 readonly GETSUITE_GLUETUN_ENV="${GETSUITE_GLUETUN_DATA_DIR}/.env"
 readonly GETSUITE_GLUETUN_IP_FILE="${GETSUITE_GLUETUN_DATA_DIR}/ip"
@@ -108,8 +110,8 @@ configure_gluetun_openvpn() {
 }
 
 verify_gluetun_connection() {
-  local attempt public_ip default_dev
-  for attempt in {1..30}; do
+  local public_ip default_dev
+  for _ in {1..30}; do
     if systemctl is-active --quiet gluetun \
       && curl -fsS --max-time 2 http://127.0.0.1:9999/ >/dev/null 2>&1 \
       && [[ -s "$GETSUITE_GLUETUN_IP_FILE" ]]; then

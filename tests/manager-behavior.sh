@@ -67,7 +67,10 @@ if unknown_output="$(run_manager does-not-exist 2>&1)"; then
 fi
 grep -q 'ERROR: Unknown command: does-not-exist' <<<"$unknown_output"
 grep -q 'Usage:' <<<"$unknown_output"
-! grep -q 'in line' <<<"$unknown_output"
+if grep -q 'in line' <<<"$unknown_output"; then
+  echo "Unknown command emitted a stack-style diagnostic" >&2
+  exit 1
+fi
 
 if run_manager add qbittorrent; then
   echo "Failed install unexpectedly succeeded" >&2

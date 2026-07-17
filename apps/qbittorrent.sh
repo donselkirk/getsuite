@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 write_qbittorrent_service() {
   cat > /etc/systemd/system/qbittorrent-nox.service <<'EOF_SERVICE'
 # GETSUITE_TEMPLATE systemd/qbittorrent.service
