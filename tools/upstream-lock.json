@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "applications": {
+    "gluetun": {
+      "install": { "repository": "community-scripts/ProxmoxVE", "path": "install/gluetun-install.sh", "blob": "68e841d93ad2a83600530cd5b57fd9411855c67f" },
+      "update": { "repository": "community-scripts/ProxmoxVE", "path": "ct/gluetun.sh", "blob": "c6cd1331a2468277ecc095663a041a58e8578b36" }
+    },
+    "qbittorrent": {
+      "install": { "repository": "community-scripts/ProxmoxVE", "path": "install/qbittorrent-install.sh", "blob": "6f02ae8c46c88a5e760c3243bc00d5c8f9cc4e70" },
+      "update": { "repository": "community-scripts/ProxmoxVE", "path": "ct/qbittorrent.sh", "blob": "9ffb5260dad4e396a8a5d8b0508d9ca74e226e1b" }
+    }
+  }
+}

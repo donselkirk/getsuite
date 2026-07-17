@@ -1,0 +1,82 @@
+name: Validate and Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: getsuite-release
+  cancel-in-progress: false
+
+jobs:
+  validate-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run GetSuite validation
+        run: |
+          bash tools/build-artifacts.sh
+          git diff --exit-code
+          bash tests/static-checks.sh
+          bash tests/manager-behavior.sh
+          git diff --check
+
+      - name: Calculate next release version
+        id: version
+        shell: bash
+        run: |
+          latest="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | sed -n '1p')"
+          if [[ -z "$latest" ]]; then
+            next="v1.0.0"
+          else
+            version="${latest#v}"
+            IFS=. read -r major minor patch <<<"$version"
+            next="v${major}.${minor}.$((patch + 1))"
+          fi
+          echo "version=$next" >>"$GITHUB_OUTPUT"
+
+      - name: Build release assets
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          printf '%s\n' "$RELEASE_VERSION" >dist/VERSION
+          cp getsuite.sh dist/getsuite.sh
+          cp ct/getsuite.sh dist/getsuite-ct.sh
+          cp install/getsuite-install.sh dist/getsuite-install.sh
+          cp tools/getsuite-manager dist/getsuite-manager
+          cp tools/getsuite-motd.sh dist/getsuite-motd.sh
+          cp tools/fix-console-autologin.sh dist/fix-console-autologin.sh
+          chmod 0755 dist/*.sh dist/getsuite-manager
+          (cd dist && sha256sum VERSION *.sh getsuite-manager >SHA256SUMS)
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$RELEASE_VERSION" \
+            dist/VERSION \
+            dist/SHA256SUMS \
+            dist/getsuite.sh \
+            dist/getsuite-ct.sh \
+            dist/getsuite-install.sh \
+            dist/getsuite-manager \
+            dist/getsuite-motd.sh \
+            dist/fix-console-autologin.sh \
+            --target "$GITHUB_SHA" \
+            --title "GetSuite $RELEASE_VERSION" \
+            --generate-notes

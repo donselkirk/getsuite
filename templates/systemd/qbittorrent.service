@@ -1,0 +1,15 @@
+[Unit]
+Description=qBittorrent-nox
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/opt/qbittorrent/qbittorrent-nox
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,49 @@
+{
+  "name": "GetSuite",
+  "slug": "getsuite",
+  "categories": [
+    14
+  ],
+  "date_created": "2026-07-17",
+  "type": "ct",
+  "updateable": true,
+  "privileged": false,
+  "has_arm": true,
+  "interface_port": null,
+  "documentation": "https://github.com/donselkirk/getsuite/wiki",
+  "website": "https://github.com/donselkirk/getsuite",
+  "logo": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/webp/qbittorrent.webp",
+  "description": "Installs native downloading applications in one LXC, with optional named-provider Gluetun VPN protection and connection verification.",
+  "install_methods": [
+    {
+      "type": "default",
+      "script": "ct/getsuite.sh",
+      "config_path": "/opt/getsuite/installed.apps",
+      "resources": {
+        "cpu": 2,
+        "ram": 6144,
+        "hdd": 16,
+        "os": "Debian",
+        "version": "13"
+      }
+    }
+  ],
+  "default_credentials": {
+    "username": null,
+    "password": null
+  },
+  "notes": [
+    {
+      "text": "The selected applications share one LXC, one backup boundary, and one failure domain.",
+      "type": "info"
+    },
+    {
+      "text": "Gluetun requires TUN passthrough. GetSuite enables it in the generated LXC configuration.",
+      "type": "warning"
+    },
+    {
+      "text": "Use 'getsuite vpn status' to verify VPN protection and 'getsuite add' to install another supported downloading application.",
+      "type": "info"
+    }
+  ]
+}

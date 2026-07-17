@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+
+# Copyright (c) 2021-2026 community-scripts ORG
+# Author: Don Selkirk
+# License: MIT | https://github.com/community-scripts/ProxmoxVED/raw/main/LICENSE
+# Source: https://wiki.servarr.com/
+
+source /dev/stdin <<<"$FUNCTIONS_FILE_PATH"
+color
+verb_ip6
+catch_errors
+setting_up_container
+network_check
+update_os
+
+# Keep an GetSuite-owned fallback for passwordless console access. The shared
+# Community Scripts customize() helper normally performs this configuration,
+# but configuring both getty paths here prevents regressions when the helper
+# implementation or the Proxmox console path changes.
+configure_getsuite_console_autologin() {
+  [[ -z "${PASSWORD:-}" ]] || return 0
+
+  msg_info "Configuring Console Auto-Login"
+  passwd -d root &>/dev/null || true
+
+  if systemctl cat container-getty@.service &>/dev/null \
+    || [[ -f /usr/lib/systemd/system/container-getty@.service ]] \
+    || [[ -f /lib/systemd/system/container-getty@.service ]]; then
+    install -d -m 0755 /etc/systemd/system/container-getty@1.service.d
+    cat >/etc/systemd/system/container-getty@1.service.d/override.conf <<'EOF_GETTY'
+# GETSUITE_INSTALL_CONTAINER_GETTY
+EOF_GETTY
+  fi
+
+  if systemctl cat console-getty.service &>/dev/null \
+    || [[ -f /usr/lib/systemd/system/console-getty.service ]] \
+    || [[ -f /lib/systemd/system/console-getty.service ]]; then
+    install -d -m 0755 /etc/systemd/system/console-getty.service.d
+    cat >/etc/systemd/system/console-getty.service.d/override.conf <<'EOF_CONSOLE'
+# GETSUITE_INSTALL_CONSOLE_GETTY
+EOF_CONSOLE
+    systemctl enable console-getty.service &>/dev/null || true
+  fi
+
+  systemctl daemon-reload
+  systemctl unmask container-getty@1.service console-getty.service &>/dev/null || true
+  systemctl enable container-getty@1.service console-getty.service &>/dev/null || true
+  systemctl reset-failed container-getty@1.service console-getty.service &>/dev/null || true
+  systemctl restart container-getty@1.service &>/dev/null || true
+  systemctl restart console-getty.service &>/dev/null || true
+  msg_ok "Configured Console Auto-Login"
+}
+
+configure_getsuite_motd() {
+  msg_info "Configuring GetSuite Login Banner"
+
+  # Community Scripts deliberately provides both a static PAM MOTD and a
+  # dynamic profile banner. GetSuite uses only the dynamic banner so it can
+  # include the current application registry without displaying twice.
+  : >/etc/motd
+  if [[ -d /etc/update-motd.d ]]; then
+    chmod -x /etc/update-motd.d/* 2>/dev/null || true
+  fi
+
+  cat >/etc/profile.d/00_lxc-details.sh <<'EOF_MOTD'
+# GETSUITE_INSTALL_MOTD
+EOF_MOTD
+  chmod 0755 /etc/profile.d/00_lxc-details.sh
+
+  msg_ok "Configured GetSuite Login Banner"
+}
+
+msg_info "Installing GetSuite Manager Dependencies"
+$STD apt install -y python3 whiptail
+msg_ok "Installed GetSuite Manager Dependencies"
+
+msg_info "Creating GetSuite Manager"
+install -d -m 0755 /opt/getsuite/lib
+install -d -m 0755 /opt/getsuite
+printf '%s\n' "$FUNCTIONS_FILE_PATH" >/opt/getsuite/lib/community-functions.sh
+chmod 0644 /opt/getsuite/lib/community-functions.sh
+curl -fsSL "${COMMUNITY_SCRIPTS_URL}/misc/tools.func" \
+  -o /opt/getsuite/lib/community-tools.sh
+chmod 0644 /opt/getsuite/lib/community-tools.sh
+touch /opt/getsuite/installed.apps
+chmod 0644 /opt/getsuite/installed.apps
+
+cat > /usr/local/bin/getsuite <<'EOF_MANAGER'
+# GETSUITE_INSTALL_MANAGER
+EOF_MANAGER
+
+chmod 0755 /usr/local/bin/getsuite
+printf '%s\n' "https://github.com/donselkirk/getsuite/releases/latest/download" \
+  >/opt/getsuite/update.url
+if [[ -n "${GETSUITE_VERSION_URL:-}" ]]; then
+  if curl -fsSL "$GETSUITE_VERSION_URL" -o /opt/getsuite/version \
+    && grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' /opt/getsuite/version; then
+    chmod 0644 /opt/getsuite/version
+  else
+    rm -f /opt/getsuite/version
+  fi
+fi
+msg_ok "Created GetSuite Manager"
+
+install_gluetun_choice="${GETSUITE_GLUETUN:-}"
+if [[ -z "$install_gluetun_choice" ]]; then
+  if [[ -r /dev/tty && -w /dev/tty ]] && command -v whiptail >/dev/null 2>&1; then
+    if whiptail --title "GetSuite VPN" \
+      --yesno "Install and configure Gluetun? Selected download applications will be held until its VPN connection is verified." \
+      10 76 </dev/tty >/dev/tty 2>&1; then
+      install_gluetun_choice="yes"
+    else
+      install_gluetun_choice="no"
+    fi
+  else
+    install_gluetun_choice="yes"
+  fi
+fi
+
+case "${install_gluetun_choice,,}" in
+  yes|y|1|true|on)
+    /usr/local/bin/getsuite vpn install
+    export GETSUITE_GLUETUN_ENABLED=1
+    ;;
+  no|n|0|false|off)
+    export GETSUITE_GLUETUN_ENABLED=0
+    msg_warn "Gluetun was declined; selected download applications will not use a VPN"
+    ;;
+  *)
+    msg_error "GETSUITE_GLUETUN must be yes or no"
+    exit 2
+    ;;
+esac
+
+if [[ -n "${GETSUITE_APPS:-}" ]]; then
+  read -r -a selected_apps <<<"${GETSUITE_APPS//,/ }"
+  /usr/local/bin/getsuite add "${selected_apps[@]}"
+else
+  /usr/local/bin/getsuite add
+fi
+msg_ok "Installed Selected GetSuite Applications"
+
+motd_ssh
+customize
+configure_getsuite_motd
+configure_getsuite_console_autologin
+
+# The shared customize() helper creates the standard remote update wrapper.
+# Until GetSuite is merged upstream, keep the prototype self-contained and
+# make `update` call the local multi-app manager directly.
+cat >/usr/bin/update <<'EOF_UPDATE'
+# GETSUITE_INSTALL_UPDATE
+EOF_UPDATE
+chmod 0755 /usr/bin/update
+
+cleanup_lxc

@@ -1,0 +1,40 @@
+name: Check Community Scripts Upstream
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Compare tracked Community Scripts sources
+        id: upstream
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash tools/check-upstream.sh
+
+      - name: Add report to workflow summary
+        if: always()
+        run: cat upstream-report/summary.md >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload review report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: community-scripts-upstream-report
+          path: upstream-report/
+
+      - name: Require review when upstream changed
+        if: steps.upstream.outcome == 'failure'
+        run: |
+          echo "Tracked Community Scripts files changed. Review the uploaded report." >&2
+          exit 1
