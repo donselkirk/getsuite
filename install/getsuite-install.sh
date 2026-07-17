@@ -356,6 +356,15 @@ WantedBy=multi-user.target
 EOF_SERVICE
 }
 
+gluetun_user_status() {
+  local message="$1"
+  if [[ -w /dev/tty ]]; then
+    printf '\r\033[K%s\n' "$message" >/dev/tty
+  else
+    printf '%s\n' "$message" >&2
+  fi
+}
+
 gluetun_tun_preflight() {
   if [[ ! -c /dev/net/tun ]]; then
     msg_error "Gluetun requires /dev/net/tun (enable TUN passthrough for this LXC)"
@@ -550,8 +559,10 @@ write_gluetun_diagnostics() {
 }
 
 install_gluetun() {
+  gluetun_user_status "Checking Gluetun TUN access..."
   gluetun_tun_preflight || return
 
+  gluetun_user_status "Installing Gluetun dependencies (this can take several minutes)..."
   msg_info "Installing Gluetun Dependencies"
   $STD apt install -y openvpn wireguard-tools iptables curl || return
   update-alternatives --set iptables /usr/sbin/iptables-legacy >/dev/null 2>&1 || return
@@ -560,15 +571,20 @@ install_gluetun() {
   setup_go || return
   msg_ok "Installed Gluetun Dependencies"
 
+  gluetun_user_status "Downloading the current Gluetun source release..."
   fetch_and_deploy_gh_release "gluetun" "qdm12/gluetun" "tarball" "latest" || return
+  gluetun_user_status "Building Gluetun (this can take a few minutes)..."
   msg_info "Building Gluetun"
   (cd /opt/gluetun && go mod download && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /usr/local/bin/gluetun ./cmd/gluetun/) || return
   msg_ok "Built Gluetun"
 
+  gluetun_user_status "Opening Gluetun VPN configuration..."
   configure_gluetun_openvpn || return
   touch /etc/alpine-release
   write_gluetun_service
   systemctl daemon-reload
+  rm -f "$GETSUITE_GLUETUN_IP_FILE" /opt/gluetun-data/forwarded_port
+  gluetun_user_status "Starting Gluetun and checking the VPN connection..."
   if ! systemctl enable -q --now gluetun || ! verify_gluetun_connection; then
     systemctl disable -q --now gluetun 2>/dev/null || true
     msg_error "Gluetun installation stopped because VPN verification failed"
@@ -585,7 +601,11 @@ reconfigure_gluetun() {
     msg_error "Gluetun is not installed. Run: getsuite vpn install"
     return 1
   }
+  gluetun_user_status "Opening Gluetun VPN configuration..."
   configure_gluetun_openvpn || return
+  rm -f "$GETSUITE_GLUETUN_IP_FILE" /opt/gluetun-data/forwarded_port
+  gluetun_user_status "Starting Gluetun with the updated VPN settings..."
+  systemctl enable -q gluetun || return
   systemctl restart gluetun || return
   if ! verify_gluetun_connection; then
     systemctl stop gluetun || true
@@ -1398,6 +1418,7 @@ fi
 
 case "${install_gluetun_choice,,}" in
   yes|y|1|true|on)
+    [[ ! -w /dev/tty ]] || printf 'Preparing native Gluetun installation...\n' >/dev/tty
     if /usr/local/bin/getsuite vpn install; then
       export GETSUITE_GLUETUN_ENABLED=1
     else
@@ -1419,9 +1440,20 @@ case "${install_gluetun_choice,,}" in
 
         case "$vpn_failure_action" in
           retry)
-            if /usr/local/bin/getsuite vpn configure; then
+            if [[ -w /dev/tty ]]; then
+              printf '\033[2J\033[HReopening Gluetun configuration...\n' >/dev/tty
+            fi
+            if timeout --foreground 300 /usr/local/bin/getsuite vpn configure; then
               export GETSUITE_GLUETUN_ENABLED=1
               vpn_failure_resolved=1
+            else
+              retry_status=$?
+              if [[ "$retry_status" == "124" ]]; then
+                msg_error "Gluetun retry timed out after 5 minutes"
+              else
+                msg_error "Gluetun retry failed; returning to recovery options"
+              fi
+              sleep 2
             fi
             ;;
           debug)

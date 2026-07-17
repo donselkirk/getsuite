@@ -133,6 +133,7 @@ fi
 
 case "${install_gluetun_choice,,}" in
   yes|y|1|true|on)
+    [[ ! -w /dev/tty ]] || printf 'Preparing native Gluetun installation...\n' >/dev/tty
     if /usr/local/bin/getsuite vpn install; then
       export GETSUITE_GLUETUN_ENABLED=1
     else
@@ -154,9 +155,20 @@ case "${install_gluetun_choice,,}" in
 
         case "$vpn_failure_action" in
           retry)
-            if /usr/local/bin/getsuite vpn configure; then
+            if [[ -w /dev/tty ]]; then
+              printf '\033[2J\033[HReopening Gluetun configuration...\n' >/dev/tty
+            fi
+            if timeout --foreground 300 /usr/local/bin/getsuite vpn configure; then
               export GETSUITE_GLUETUN_ENABLED=1
               vpn_failure_resolved=1
+            else
+              retry_status=$?
+              if [[ "$retry_status" == "124" ]]; then
+                msg_error "Gluetun retry timed out after 5 minutes"
+              else
+                msg_error "Gluetun retry failed; returning to recovery options"
+              fi
+              sleep 2
             fi
             ;;
           debug)
