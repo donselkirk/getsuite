@@ -497,8 +497,33 @@ verify_gluetun_connection() {
     sleep 2
   done
   msg_error "Gluetun did not establish a healthy VPN route"
-  journalctl -u gluetun -n 20 --no-pager >&2 || true
+  write_gluetun_diagnostics
+  journalctl -u gluetun -n 40 --no-pager >&2 || true
+  msg_error "Diagnostics saved to /opt/getsuite/gluetun-last-error.log"
   return 1
+}
+
+write_gluetun_diagnostics() {
+  local diagnostic_file=/opt/getsuite/gluetun-last-error.log
+  install -d -m 0755 /opt/getsuite
+  {
+    printf 'GetSuite Gluetun diagnostics\n'
+    printf 'Generated: %s\n\n' "$(date --iso-8601=seconds 2>/dev/null || date)"
+    printf '%s\n' '--- TUN device ---'
+    ls -l /dev/net/tun 2>&1 || true
+    printf '\n%s\n' '--- Tunnel interfaces ---'
+    ip -details link show type tun 2>&1 || true
+    ip -details link show type wireguard 2>&1 || true
+    printf '\n%s\n' '--- IPv4 routes ---'
+    ip -4 route show table all 2>&1 || true
+    printf '\n%s\n' '--- Route test ---'
+    ip -4 route get 1.1.1.1 2>&1 || true
+    printf '\n%s\n' '--- Gluetun service ---'
+    systemctl --no-pager --full status gluetun 2>&1 || true
+    printf '\n%s\n' '--- Gluetun journal ---'
+    journalctl -u gluetun -n 100 --no-pager 2>&1 || true
+  } >"$diagnostic_file"
+  chmod 0600 "$diagnostic_file"
 }
 
 install_gluetun() {
@@ -1327,6 +1352,7 @@ configure_getsuite_motd
 configure_getsuite_console_autologin
 
 install_gluetun_choice="${GETSUITE_GLUETUN:-}"
+skip_selected_apps=0
 if [[ -z "$install_gluetun_choice" ]]; then
   if [[ -r /dev/tty && -w /dev/tty ]] && command -v whiptail >/dev/null 2>&1; then
     if whiptail --title "GetSuite VPN" \
@@ -1349,8 +1375,49 @@ fi
 
 case "${install_gluetun_choice,,}" in
   yes|y|1|true|on)
-    /usr/local/bin/getsuite vpn install
-    export GETSUITE_GLUETUN_ENABLED=1
+    if /usr/local/bin/getsuite vpn install; then
+      export GETSUITE_GLUETUN_ENABLED=1
+    else
+      export GETSUITE_GLUETUN_ENABLED=0
+      vpn_failure_resolved=0
+      while ((vpn_failure_resolved == 0)); do
+        if [[ -r /dev/tty && -w /dev/tty ]] && command -v whiptail >/dev/null 2>&1; then
+          vpn_failure_action="$(whiptail --title "Gluetun Connection Failed" \
+            --menu "Gluetun could not verify a VPN connection. Diagnostics are saved in /opt/getsuite/gluetun-last-error.log." \
+            18 78 5 \
+            retry "Re-enter VPN settings and retry" \
+            debug "Keep the LXC and skip application installation" \
+            unprotected "Continue and install applications without VPN protection" \
+            abort "Abort the complete LXC installation" \
+            3>&1 1>/dev/tty 2>&3 </dev/tty)" || vpn_failure_action="debug"
+        else
+          vpn_failure_action="debug"
+        fi
+
+        case "$vpn_failure_action" in
+          retry)
+            if /usr/local/bin/getsuite vpn configure; then
+              export GETSUITE_GLUETUN_ENABLED=1
+              vpn_failure_resolved=1
+            fi
+            ;;
+          debug)
+            skip_selected_apps=1
+            vpn_failure_resolved=1
+            msg_warn "Keeping the LXC for VPN debugging; application installation skipped"
+            ;;
+          unprotected)
+            vpn_failure_resolved=1
+            msg_warn "Continuing without VPN protection at the user's explicit request"
+            ;;
+          abort)
+            msg_error "Gluetun setup was aborted by the user"
+            exit 1
+            ;;
+        esac
+      done
+      [[ ! -w /dev/tty ]] || printf '\033[2J\033[H' >/dev/tty
+    fi
     ;;
   no|n|0|false|off)
     export GETSUITE_GLUETUN_ENABLED=0
@@ -1362,13 +1429,17 @@ case "${install_gluetun_choice,,}" in
     ;;
 esac
 
-if [[ -n "${GETSUITE_APPS:-}" ]]; then
-  read -r -a selected_apps <<<"${GETSUITE_APPS//,/ }"
-  /usr/local/bin/getsuite add "${selected_apps[@]}"
+if ((skip_selected_apps == 0)); then
+  if [[ -n "${GETSUITE_APPS:-}" ]]; then
+    read -r -a selected_apps <<<"${GETSUITE_APPS//,/ }"
+    /usr/local/bin/getsuite add "${selected_apps[@]}"
+  else
+    /usr/local/bin/getsuite add
+  fi
+  msg_ok "Installed Selected GetSuite Applications"
 else
-  /usr/local/bin/getsuite add
+  msg_warn "Skipped GetSuite application installation"
 fi
-msg_ok "Installed Selected GetSuite Applications"
 
 # The shared customize() helper creates the standard remote update wrapper.
 # Until GetSuite is merged upstream, keep the prototype self-contained and

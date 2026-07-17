@@ -151,8 +151,33 @@ verify_gluetun_connection() {
     sleep 2
   done
   msg_error "Gluetun did not establish a healthy VPN route"
-  journalctl -u gluetun -n 20 --no-pager >&2 || true
+  write_gluetun_diagnostics
+  journalctl -u gluetun -n 40 --no-pager >&2 || true
+  msg_error "Diagnostics saved to /opt/getsuite/gluetun-last-error.log"
   return 1
+}
+
+write_gluetun_diagnostics() {
+  local diagnostic_file=/opt/getsuite/gluetun-last-error.log
+  install -d -m 0755 /opt/getsuite
+  {
+    printf 'GetSuite Gluetun diagnostics\n'
+    printf 'Generated: %s\n\n' "$(date --iso-8601=seconds 2>/dev/null || date)"
+    printf '%s\n' '--- TUN device ---'
+    ls -l /dev/net/tun 2>&1 || true
+    printf '\n%s\n' '--- Tunnel interfaces ---'
+    ip -details link show type tun 2>&1 || true
+    ip -details link show type wireguard 2>&1 || true
+    printf '\n%s\n' '--- IPv4 routes ---'
+    ip -4 route show table all 2>&1 || true
+    printf '\n%s\n' '--- Route test ---'
+    ip -4 route get 1.1.1.1 2>&1 || true
+    printf '\n%s\n' '--- Gluetun service ---'
+    systemctl --no-pager --full status gluetun 2>&1 || true
+    printf '\n%s\n' '--- Gluetun journal ---'
+    journalctl -u gluetun -n 100 --no-pager 2>&1 || true
+  } >"$diagnostic_file"
+  chmod 0600 "$diagnostic_file"
 }
 
 install_gluetun() {
