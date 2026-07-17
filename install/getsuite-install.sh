@@ -400,7 +400,33 @@ configure_gluetun_openvpn() {
   local input_ports="${GETSUITE_VPN_INPUT_PORTS:-22,8090}"
   local entered_lan=""
 
-  if [[ -r /dev/tty && -w /dev/tty ]]; then
+  if [[ -r /dev/tty && -w /dev/tty ]] && command -v whiptail >/dev/null 2>&1; then
+    if [[ -z "$provider" ]]; then
+      provider="$(whiptail --title "Gluetun OpenVPN Setup" \
+        --inputbox "VPN provider name as listed by Gluetun:" 10 72 \
+        3>&1 1>/dev/tty 2>&3 </dev/tty)" || return 1
+    fi
+    if [[ -z "$username" ]]; then
+      username="$(whiptail --title "Gluetun OpenVPN Setup" \
+        --inputbox "OpenVPN username:" 10 72 \
+        3>&1 1>/dev/tty 2>&3 </dev/tty)" || return 1
+    fi
+    if [[ -z "$password" ]]; then
+      password="$(whiptail --title "Gluetun OpenVPN Setup" \
+        --passwordbox "OpenVPN password:" 10 72 \
+        3>&1 1>/dev/tty 2>&3 </dev/tty)" || return 1
+    fi
+    if [[ -z "$countries$regions$cities" ]]; then
+      countries="$(whiptail --title "Gluetun OpenVPN Setup" \
+        --inputbox "Preferred VPN country (optional):" 10 72 \
+        3>&1 1>/dev/tty 2>&3 </dev/tty)" || return 1
+    fi
+    entered_lan="$(whiptail --title "Gluetun Firewall Setup" \
+      --inputbox "LAN subnet(s) allowed outside the VPN (comma-separated):" \
+      10 76 "$lan_cidr" 3>&1 1>/dev/tty 2>&3 </dev/tty)" || return 1
+    lan_cidr="$entered_lan"
+    printf '\033[2J\033[H' >/dev/tty
+  elif [[ -r /dev/tty && -w /dev/tty ]]; then
     [[ -n "$provider" ]] || read -r -p "VPN provider (Gluetun provider name): " provider </dev/tty
     [[ -n "$username" ]] || read -r -p "OpenVPN username: " username </dev/tty
     if [[ -z "$password" ]]; then
@@ -1293,6 +1319,13 @@ if [[ -n "${GETSUITE_VERSION_URL:-}" ]]; then
 fi
 msg_ok "Created GetSuite Manager"
 
+# Establish login access before optional application work. A VPN provider or
+# application failure must not leave the new LXC without a usable console.
+motd_ssh
+customize
+configure_getsuite_motd
+configure_getsuite_console_autologin
+
 install_gluetun_choice="${GETSUITE_GLUETUN:-}"
 if [[ -z "$install_gluetun_choice" ]]; then
   if [[ -r /dev/tty && -w /dev/tty ]] && command -v whiptail >/dev/null 2>&1; then
@@ -1336,11 +1369,6 @@ else
   /usr/local/bin/getsuite add
 fi
 msg_ok "Installed Selected GetSuite Applications"
-
-motd_ssh
-customize
-configure_getsuite_motd
-configure_getsuite_console_autologin
 
 # The shared customize() helper creates the standard remote update wrapper.
 # Until GetSuite is merged upstream, keep the prototype self-contained and

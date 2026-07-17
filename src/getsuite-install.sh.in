@@ -102,6 +102,13 @@ if [[ -n "${GETSUITE_VERSION_URL:-}" ]]; then
 fi
 msg_ok "Created GetSuite Manager"
 
+# Establish login access before optional application work. A VPN provider or
+# application failure must not leave the new LXC without a usable console.
+motd_ssh
+customize
+configure_getsuite_motd
+configure_getsuite_console_autologin
+
 install_gluetun_choice="${GETSUITE_GLUETUN:-}"
 if [[ -z "$install_gluetun_choice" ]]; then
   if [[ -r /dev/tty && -w /dev/tty ]] && command -v whiptail >/dev/null 2>&1; then
@@ -145,11 +152,6 @@ else
   /usr/local/bin/getsuite add
 fi
 msg_ok "Installed Selected GetSuite Applications"
-
-motd_ssh
-customize
-configure_getsuite_motd
-configure_getsuite_console_autologin
 
 # The shared customize() helper creates the standard remote update wrapper.
 # Until GetSuite is merged upstream, keep the prototype self-contained and
