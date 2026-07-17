@@ -117,6 +117,12 @@ if [[ -z "$install_gluetun_choice" ]]; then
   fi
 fi
 
+# Remove the completed whiptail dialog before showing Gluetun configuration
+# prompts or continuing to application selection.
+if [[ -w /dev/tty ]]; then
+  printf '\033[2J\033[H' >/dev/tty
+fi
+
 case "${install_gluetun_choice,,}" in
   yes|y|1|true|on)
     /usr/local/bin/getsuite vpn install
